@@ -162,94 +162,73 @@ Completa lib/restaurante-auth.ts:
 
 typescript
 // lib/restaurante-auth.ts
-import { cookies } from 'next/headers';
 
-const SESSION_NAME = 'restaurante_session';
+// lib/restaurante-auth.ts
+import { cookies } from "next/headers";
 
-export async function loginRestaurante(password: string): Promise<boolean> {
-  const validPassword = process.env.RESTAURANT_PASSWORD;
-  
-  if (password === validPassword) {
-    const cookieStore = await cookies();
-    cookieStore.set(SESSION_NAME, 'authenticated', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 // 24 horas
-    });
-    return true;
+export const RESTAURANTE_USERNAME = "restaurante";
+export const RESTAURANTE_SESSION_COOKIE = "restaurante_session";
+
+/**
+ * Compara credenciales con el usuario fijo y RESTAURANT_PASSWORD.
+ * Debe ejecutarse en el servidor (Server Action / Route Handler).
+ */
+export function verifyRestauranteCredentials(
+  username: string,
+  password: string,
+): boolean {
+  const expected = process.env.RESTAURANT_PASSWORD;
+  if (!expected) {
+    throw new Error("Falta RESTAURANT_PASSWORD en .env.local");
   }
-  
-  return false;
+  return username === RESTAURANTE_USERNAME && password === expected;
 }
 
-export async function logoutRestaurante(): Promise<void> {
+/**
+ * Crear cookie de sesión tras login OK.
+ */
+export async function createRestauranteSession(): Promise<void> {
   const cookieStore = await cookies();
-  cookieStore.delete(SESSION_NAME);
+  cookieStore.set({
+    name: RESTAURANTE_SESSION_COOKIE,
+    value: "1",
+    httpOnly: true,
+    path: "/",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24,
+  });
 }
+
+
+export async function destroyRestauranteSession(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(RESTAURANTE_SESSION_COOKIE);
+}
+
 
 export async function isRestauranteAuthenticated(): Promise<boolean> {
   const cookieStore = await cookies();
-  return cookieStore.has(SESSION_NAME);
+  const cookie = cookieStore.get(RESTAURANTE_SESSION_COOKIE);
+  return cookie?.value === "1";
 }
+
 Fase 3: Página del Restaurante (/restaurante)
 3.1 Login Page (app/restaurante/page.tsx)
 
 typescript
 // app/restaurante/page.tsx
-'use client';
+import { redirect } from "next/navigation";
+import { isRestauranteAuthenticated } from "../../lib/restaurante-auth";
+import RestauranteDashboard from "./components/RestauranteDashboard";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { loginRestaurante } from '@/lib/restaurante-auth';
+export default async function RestaurantePage() {
+  if (!(await isRestauranteAuthenticated())) {
+    redirect("/restaurante/login");
+  }
 
-export default function RestauranteLogin() {
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const router = useRouter();
+  return <RestauranteDashboard />;
+}
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const success = await loginRestaurante(password);
-    
-    if (success) {
-      router.push('/restaurante/dashboard');
-    } else {
-      setError('Contraseña incorrecta');
-    }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow">
-        <h1 className="text-2xl font-bold text-center">Panel Restaurante</h1>
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Contraseña
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              required
-            />
-          </div>
-          {error && (
-            <div className="text-red-500 text-sm">{error}</div>
-          )}
-          <button
-            type="submit"
-            className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-md"
-          >
-            Iniciar Sesión
-          </button>
-        </form>
-      </div>
-    </div>
-  );
 }
 3.2 Dashboard (app/restaurante/dashboard/page.tsx)
 
@@ -543,303 +522,28 @@ Fase 4: Página de Oficina (/)
 4.1 Componentes y lógica (app/page.tsx)
 
 typescript
-// app/page.tsx
-'use client';
-
-import { useEffect, useState } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import type { Dish } from '@/types/dish';
-
-// Tipos para el pedido
-interface OrderWithDish {
-  id: number;
-  person_name: string;
-  person_email: string;
-  dish_id: number;
-  order_date: string;
-  dish: Dish;
-}
+import OfficeMenu from "./components/OfficeMenu";
 
 export default function Home() {
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
-  const [dishes, setDishes] = useState<Dish[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [userEmail, setUserEmail] = useState<string>('');
-  const [userName, setUserName] = useState<string>('');
-  const [existingOrder, setExistingOrder] = useState<OrderWithDish | null>(null);
-  const [selectedDish, setSelectedDish] = useState<number | null>(null);
-  const [orderStatus, setOrderStatus] = useState<{
-    type: 'success' | 'error' | null;
-    message: string;
-  }>({ type: null, message: '' });
-  
-  const supabase = createClientComponentClient();
-
-  // Cargar datos del usuario desde localStorage
-  useEffect(() => {
-    const savedEmail = localStorage.getItem('user_email');
-    const savedName = localStorage.getItem('user_name');
-    if (savedEmail) setUserEmail(savedEmail);
-    if (savedName) setUserName(savedName);
-  }, []);
-
-  // Cargar menú y pedido existente
-  useEffect(() => {
-    if (selectedDate) {
-      loadMenuAndOrder();
-    }
-  }, [selectedDate, userEmail]);
-
-  const loadMenuAndOrder = async () => {
-    setLoading(true);
-    setOrderStatus({ type: null, message: '' });
-    
-    try {
-      // 1. Cargar platos activos
-      const { data: dishesData, error: dishesError } = await supabase
-        .from('dishes')
-        .select('*')
-        .eq('menu_date', selectedDate)
-        .eq('is_active', true)
-        .order('created_at');
-
-      if (dishesError) throw dishesError;
-      setDishes(dishesData || []);
-
-      // 2. Si hay email, buscar pedido existente
-      if (userEmail) {
-        const { data: orderData, error: orderError } = await supabase
-          .from('orders')
-          .select(`
-            *,
-            dish:dishes(*)
-          `)
-          .eq('person_email', userEmail)
-          .eq('order_date', selectedDate)
-          .single();
-
-        if (orderError && orderError.code !== 'PGRST116') {
-          console.error('Error al cargar pedido:', orderError);
-        }
-
-        if (orderData) {
-          setExistingOrder(orderData as OrderWithDish);
-          setSelectedDish(orderData.dish_id);
-        } else {
-          setExistingOrder(null);
-          setSelectedDish(null);
-        }
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePlaceOrder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!selectedDish) {
-      setOrderStatus({ type: 'error', message: 'Por favor, selecciona un plato' });
-      return;
-    }
-
-    if (!userName.trim() || !userEmail.trim()) {
-      setOrderStatus({ type: 'error', message: 'Por favor, completa todos los campos' });
-      return;
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('orders')
-        .insert({
-          person_name: userName.trim(),
-          person_email: userEmail.trim(),
-          dish_id: selectedDish,
-          order_date: selectedDate
-        })
-        .select();
-
-      if (error) {
-        // Manejar violación de UNIQUE constraint
-        if (error.code === '23505') {
-          setOrderStatus({
-            type: 'error',
-            message: 'Ya realizaste un pedido para esta fecha'
-          });
-          // Recargar para mostrar el pedido existente
-          await loadMenuAndOrder();
-        } else {
-          throw error;
-        }
-        return;
-      }
-
-      // Guardar en localStorage
-      localStorage.setItem('user_email', userEmail.trim());
-      localStorage.setItem('user_name', userName.trim());
-
-      setOrderStatus({
-        type: 'success',
-        message: `¡Pedido realizado! Has elegido: ${dishes.find(d => d.id === selectedDish)?.name}`
-      });
-
-      // Recargar para mostrar el pedido
-      await loadMenuAndOrder();
-
-    } catch (error) {
-      console.error('Error al hacer pedido:', error);
-      setOrderStatus({
-        type: 'error',
-        message: 'Error al realizar el pedido. Intenta nuevamente.'
-      });
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-500">Cargando...</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold text-center mb-8">
-          Pedido de Almuerzo
+    <main className="mx-auto flex min-h-full w-full max-w-5xl flex-col gap-6 px-6 py-10">
+      <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
+        <p className="text-sm font-medium tracking-wide text-zinc-500 uppercase">
+          Oficina
+        </p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-900">
+          Almuerzo del día
         </h1>
-
-        {/* Selector de Fecha */}
-        <div className="bg-white p-4 rounded-lg shadow mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Seleccionar Fecha
-          </label>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-          />
-        </div>
-
-        {/* Menú */}
-        <div className="bg-white p-4 rounded-lg shadow mb-6">
-          <h2 className="text-lg font-semibold mb-4">
-            Menú del {new Date(selectedDate).toLocaleDateString('es-ES')}
-          </h2>
-
-          {dishes.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">
-              No hay platos disponibles para esta fecha
-            </p>
-          ) : existingOrder ? (
-            // Mostrar pedido existente
-            <div className="bg-green-50 border border-green-200 rounded-md p-4">
-              <p className="text-green-800 font-medium">
-                Ya realizaste tu pedido para esta fecha
-              </p>
-              <p className="text-green-700 mt-2">
-                Has elegido: <strong>{existingOrder.dish?.name}</strong>
-              </p>
-              {existingOrder.dish?.description && (
-                <p className="text-gray-600 text-sm mt-1">
-                  {existingOrder.dish.description}
-                </p>
-              )}
-            </div>
-          ) : (
-            <>
-              {/* Lista de platos */}
-              <div className="space-y-2 mb-4">
-                {dishes.map((dish) => (
-                  <label
-                    key={dish.id}
-                    className={`flex items-center p-3 rounded-md border cursor-pointer transition-colors ${
-                      selectedDish === dish.id
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="dish"
-                      value={dish.id}
-                      checked={selectedDish === dish.id}
-                      onChange={() => setSelectedDish(dish.id)}
-                      className="mr-3"
-                      required
-                    />
-                    <div>
-                      <span className="font-medium">{dish.name}</span>
-                      {dish.description && (
-                        <span className="text-sm text-gray-500 ml-2">
-                          {dish.description}
-                        </span>
-                      )}
-                    </div>
-                  </label>
-                ))}
-              </div>
-
-              {/* Formulario de pedido */}
-              <form onSubmit={handlePlaceOrder} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nombre
-                  </label>
-                  <input
-                    type="text"
-                    value={userName}
-                    onChange={(e) => setUserName(e.target.value)}
-                    placeholder="Tu nombre"
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={userEmail}
-                    onChange={(e) => setUserEmail(e.target.value)}
-                    placeholder="tu@email.com"
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-
-                {orderStatus.type && (
-                  <div className={`p-3 rounded-md ${
-                    orderStatus.type === 'success'
-                      ? 'bg-green-50 text-green-800 border border-green-200'
-                      : 'bg-red-50 text-red-800 border border-red-200'
-                  }`}>
-                    {orderStatus.message}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={!selectedDish}
-                  className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Confirmar Pedido
-                </button>
-              </form>
-            </>
-          )}
-        </div>
+        <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-600">
+          Elige una fecha, selecciona un plato y confirma con tu nombre y email. Si ya pediste ese día, verás tu elección y no podrás pedir de nuevo.
+        </p>
       </div>
-    </div>
+
+      <OfficeMenu />
+    </main>
   );
 }
+___--_____
 Fase 5: Middleware para Proteger Rutas
 typescript
 // middleware.ts
@@ -869,27 +573,26 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: '/restaurante/:path*',
 };
+___---___
 Fase 6: Crear Tipos TypeScript (si no existen)
 typescript
 // types/dish.ts
-export interface Dish {
-  id: number;
-  menu_date: string;
+export type Dish = {
+  id: string;
   name: string;
   description: string | null;
+  menu_date: string; // YYYY-MM-DD
   is_active: boolean;
   created_at: string;
-}
+};
 
-// types/order.ts
-export interface Order {
-  id: number;
-  person_name: string;
-  person_email: string;
-  dish_id: number;
-  order_date: string;
-  created_at: string;
-}
+export type DishInsert = {
+  name: string;
+  description?: string | null;
+  menu_date: string;
+  is_active?: boolean;
+};
+
 📋 Checklist de Verificación
 Antes de entregar, marca esto:
 
@@ -1473,3 +1176,4 @@ Bitácora completada: 29/07/2026
 Estado: ✅ Lista para entrega
 
 
+_-_
