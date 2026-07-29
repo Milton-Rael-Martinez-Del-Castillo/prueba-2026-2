@@ -11,8 +11,9 @@
  * @supabase/auth-helpers ni signInWithPassword para este gate.
  */
 
-export const RESTAURANTE_USERNAME = "restaurante";
+import { cookies } from "next/headers";
 
+export const RESTAURANTE_USERNAME = "restaurante";
 export const RESTAURANTE_SESSION_COOKIE = "restaurante_session";
 
 /**
@@ -31,23 +32,33 @@ export function verifyRestauranteCredentials(
 }
 
 /**
- * TODO (candidato): crear cookie de sesión tras login OK.
- * Sugerencia: cookie httpOnly, path=/, valor opaco (ej. "1" o un token simple).
+ * Crear cookie de sesión tras login OK.
  */
 export async function createRestauranteSession(): Promise<void> {
-  throw new Error("TODO: implementar createRestauranteSession");
+  const cookieStore = await cookies();
+  cookieStore.set({
+    name: RESTAURANTE_SESSION_COOKIE,
+    value: "1",
+    httpOnly: true,
+    path: "/",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24,
+  });
 }
 
 /**
- * TODO (candidato): borrar cookie de sesión (logout).
+ * Borrar cookie de sesión (logout).
  */
 export async function destroyRestauranteSession(): Promise<void> {
-  throw new Error("TODO: implementar destroyRestauranteSession");
+  const cookieStore = await cookies();
+  cookieStore.delete(RESTAURANTE_SESSION_COOKIE);
 }
 
 /**
- * TODO (candidato): leer cookie y devolver si hay sesión de restaurante.
+ * Leer cookie y devolver si hay sesión de restaurante.
  */
 export async function isRestauranteAuthenticated(): Promise<boolean> {
-  throw new Error("TODO: implementar isRestauranteAuthenticated");
+  const cookieStore = await cookies();
+  const cookie = cookieStore.get(RESTAURANTE_SESSION_COOKIE);
+  return cookie?.value === "1";
 }
