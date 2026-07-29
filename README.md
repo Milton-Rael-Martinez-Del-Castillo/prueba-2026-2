@@ -183,16 +183,6 @@ Marca mentalmente antes de entregar:
 5. Si el modelo alucina APIs de Next/Supabase, apunta a `node_modules/next/dist/docs/` y a la docs oficiales.
 6. Documenta en la bitácora qué falló y cómo lo corregiste.
 
-Sugerencia de tiempo:
-
-| Bloque | Minutos |
-|--------|---------|
-| Fork, Supabase, env, schema | 20–30 |
-| Plan + `AGENTS.md` | 15–20 |
-| Gate restaurante + CRUD menú por fecha | 45–55 |
-| Oficina: menú + pedido único + mostrar elección | 45–55 |
-| Conteo, pulido, bitácora, push | 25–35 |
-
 ---
 
 ## 8. Entrega
@@ -233,5 +223,3 @@ Detalle interno solo lo maneja el evaluador. Lo que sí debes cuidar:
 - App que cumple el checklist.
 - Código alineado al schema y sin secretos.
 - Fork accesible + collaborator.
-
-¡Éxito — y que el almuerzo quede ordenado!
